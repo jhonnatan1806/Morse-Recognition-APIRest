@@ -29,14 +29,14 @@ class ModelTrainer:
     def load_model(self, file_path='model.h5'):
         self.model = load_model(file_path)
 
-    def train(self, X_train, y_train, X_test, y_test, batch_size, epochs):
-        self.log = self.model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, validation_data=(X_test, y_test))
+    def train(self, X_train, y_train, batch_size, epochs):
+        self.log = self.model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs)
         self.model.summary()
 
     def predict(self, image):
         prediction = self.model.predict(image[None,:,:,:])[0]
         return prediction
 
-    def evaluate_model(self, X_test, y_test, batch_size=512):
+    def evaluate_model(self, X_test, y_test, batch_size=16):
         loss, accuracy = self.model.evaluate(X_test, y_test, batch_size=batch_size, verbose=0)
         print(f"Loss: {loss:.4f}, Accuracy: {accuracy:.4f}")

@@ -11,6 +11,8 @@ import uuid
 import numpy as np
 from model_trainer import ModelTrainer 
 
+size = (35,35)
+
 # --------------------------------------------
 # Función para subir un archivo
 # --------------------------------------------
@@ -84,7 +86,7 @@ def train_model():
         X_raw = X_raw / 255.0
         y = np.load('data/test/y.npy')
         X = []
-        size = (28, 28)
+        #size = (35, 35)
         for x in X_raw:
             X.append(resize(x, size))
         X = np.array(X)
@@ -110,7 +112,7 @@ def train_model():
         input_shape = X_train.shape[1:]  # Asume que todas las imágenes tienen el mismo shape
         trainer = ModelTrainer(input_shape, num_classes)
         # Entrenar el modelo bs = 16, epochs = 200
-        trainer.train(X_train, y_train_encoded, X_test, y_test_encoded, batch_size=16, epochs=200)
+        trainer.train(X_train, y_train_encoded, 16, 200)
         trainer.save_model('data/test/trained_model.h5')  # Guardar modelo
         return jsonify({'status': 'success', 'message': 'Model trained and saved successfully'})
 
@@ -121,7 +123,7 @@ def train_model():
 # Función para predecir una imagen
 # --------------------------------------------
 def predict_data(request):
-    trainer = ModelTrainer(input_shape=(28, 28, 1), num_classes=5)
+    trainer = ModelTrainer(input_shape=(size[0], size[1], 1), num_classes=5)
     trainer.load_model('data/test/trained_model.h5')
     try: 
         img_data = request.json.get('image').replace("data:image/png;base64,","")
@@ -138,7 +140,7 @@ def predict_data(request):
         image = Image.open(filepath)
 
         # Redimensionar la imagen
-        image = image.resize((28, 28))
+        image = image.resize(size)
 
         # Convertir la imagen a un array numpy
         image_array = np.array(image)
