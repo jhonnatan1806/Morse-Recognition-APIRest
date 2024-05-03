@@ -92,27 +92,27 @@ def train_model():
         X = np.array(X)
 
         # Dividimos los datos en entrenamiento y prueba
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=42, stratify=y)
+        #X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42, stratify=y)
 
         # Preparar las dimensiones de las imágenes si es necesario
-        if X_train.ndim == 3:
-            X_train = X_train[..., None]  # Añadir una dimensión adicional al final de las imágenes de entrenamiento
-            X_test = X_test[..., None]    # Añadir una dimensión adicional al final de las imágenes de prueba
-            print(X_train.shape, X_test.shape)  # Imprimir las nuevas formas de las imágenes de entrenamiento y prueba
+        if X.ndim == 3:
+            X = X[..., None]  # Añadir una dimensión adicional al final de las imágenes de entrenamiento
+            #X_test = X_test[..., None]    # Añadir una dimensión adicional al final de las imágenes de prueba
+            #print(X_train.shape, X_test.shape)  # Imprimir las nuevas formas de las imágenes de entrenamiento y prueba
 
         # Creamos un objeto LabelEncoder
         label_encoder = LabelEncoder()
 
         # Convertimos las etiquetas de letras en números enteros
-        y_train_encoded = label_encoder.fit_transform(y_train)
-        y_test_encoded = label_encoder.transform(y_test)
+        y_train_encoded = label_encoder.fit_transform(y)
+        #y_test_encoded = label_encoder.transform(y_test)
 
         # Crear e instanciar el modelo
         num_classes = len(np.unique(y))
-        input_shape = X_train.shape[1:]  # Asume que todas las imágenes tienen el mismo shape
+        input_shape = X.shape[1:]  # Asume que todas las imágenes tienen el mismo shape
         trainer = ModelTrainer(input_shape, num_classes)
         # Entrenar el modelo bs = 16, epochs = 200
-        trainer.train(X_train, y_train_encoded, 16, 200)
+        trainer.train(X, y_train_encoded, 16, 200)
         trainer.save_model('data/test/trained_model.h5')  # Guardar modelo
         return jsonify({'status': 'success', 'message': 'Model trained and saved successfully'})
 
