@@ -2,6 +2,10 @@ from flask import request, send_from_directory
 import model_controller
 
 def init_app(app):
+
+    @app.route('/', methods=['GET'])
+    def index():
+        return 'Hello, World!'
     
     @app.route('/upload', methods=['POST'])
     def upload_data():
