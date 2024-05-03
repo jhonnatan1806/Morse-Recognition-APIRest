@@ -143,6 +143,8 @@ def predict_data(request):
         # Convertir la imagen a un array numpy
         image_array = np.array(image)
 
+        image_array = image_array/255.0
+
         # Seleccionar el canal de color que deseas mantener
         image_array = image_array[:, :, 3]
 
