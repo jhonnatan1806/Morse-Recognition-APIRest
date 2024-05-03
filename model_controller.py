@@ -1,9 +1,12 @@
 from flask import jsonify, request
 from skimage.transform import resize
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 from PIL import Image
 import glob
 import os
+from skimage import io
+import base64
 import uuid 
 import numpy as np
 from model_trainer import ModelTrainer 
@@ -12,24 +15,18 @@ from model_trainer import ModelTrainer
 # Función para subir un archivo
 # --------------------------------------------
 def upload_data(request):
-    # imprimir cuando llega el request
-    print(request)
-    # Verificar si el request contiene el archivo en el cuerpo del formulario
-    if 'image' not in request.files:
-        return jsonify({'status': 'error', 'message': 'No file part'})
-
-    file = request.files['image']
-    
-    # Verificar si se envió un archivo
-    if file.filename == '':
-        return jsonify({'status': 'error', 'message': 'No selected file'})
-
-    # Obtener el nombre de la subcarpeta del cuerpo de la solicitud, si existe
-    subfolder = request.form.get('subfolder')
-    if not subfolder or subfolder not in ['A', 'E', 'I', 'O', 'U']:
-        return jsonify({'status': 'error', 'message': 'Invalid or missing subfolder'})
-
     try:
+        # Verificar si se envió la imagen en base64
+        img_data = request.json.get('image').replace("data:image/png;base64,","")
+        subfolder = request.json.get('subfolder')
+        
+        # Verificar si se proporcionó la subcarpeta y si es válida
+        if not subfolder or subfolder not in ['A', 'E', 'I', 'O', 'U']:
+            return jsonify({'status': 'error', 'message': 'Invalid or missing subfolder'})
+        
+        # Decodificar la imagen base64 y guardarla
+        img_bytes = base64.b64decode(img_data)
+        
         # Definir el path donde guardarás los archivos incluyendo la subcarpeta
         upload_folder = os.path.join('data/train/', subfolder)
 
@@ -42,7 +39,8 @@ def upload_data(request):
 
         # Guardar el archivo con el nombre único
         filepath = os.path.join(upload_folder, filename)
-        file.save(filepath)
+        with open(filepath, "wb") as fh:
+            fh.write(img_bytes)
 
         # Aquí puedes agregar cualquier procesamiento adicional necesario
         return jsonify({'status': 'success', 'message': 'File uploaded successfully', 'path': filepath})
@@ -55,25 +53,21 @@ def upload_data(request):
 # --------------------------------------------
 def prepare_dataset():
     try:
-        X = []
-        y = []
-        categories = ['A', 'E', 'I', 'O', 'U']
-        for i, subfolder in enumerate(categories):
-            files = glob.glob(os.path.join('data/train/', subfolder, '*.png'))
-            for file in files:
-                with Image.open(file) as image:
-                    image = image.convert('L')  # Convertir a escala de grises
-                    image = image.resize((28, 28))  # Redimensionar a 28x28 que es el input_shape esperado
-                    image_array = np.array(image)
-                    image_array = image_array / 255.0  # Normalización
-                    X.append(image_array)
-                    y.append(i)
+        images = []
+        d = ['A', 'E', 'I', 'O', 'U']
+        digits = []
+        for digit in d:
+            filelist = glob.glob('data/train/{}/*.png'.format(digit))
+            images_read = io.concatenate_images(io.imread_collection(filelist))
+            images_read = images_read[:, :, :, 3]
+            digits_read = np.array([digit] * images_read.shape[0])
+            images.append(images_read)
+            digits.append(digits_read)
 
-        # Convertir listas a arrays de numpy y guardar
-        X = np.array(X)
-        y = np.array(y)
-        np.save('data/test/X.npy', X, allow_pickle=True)
-        np.save('data/test/y.npy', y, allow_pickle=True)
+        images = np.vstack(images)
+        digits = np.concatenate(digits)
+        np.save('data/test/X.npy', images, allow_pickle=True)
+        np.save('data/test/y.npy', digits, allow_pickle=True)
 
         return jsonify({'status': 'success', 'message': 'Dataset prepared successfully'})
 
@@ -100,19 +94,24 @@ def train_model():
 
         # Preparar las dimensiones de las imágenes si es necesario
         if X_train.ndim == 3:
-            X_train = X_train[..., None]
-            X_test = X_test[..., None]
+            X_train = X_train[..., None]  # Añadir una dimensión adicional al final de las imágenes de entrenamiento
+            X_test = X_test[..., None]    # Añadir una dimensión adicional al final de las imágenes de prueba
+            print(X_train.shape, X_test.shape)  # Imprimir las nuevas formas de las imágenes de entrenamiento y prueba
+
+        # Creamos un objeto LabelEncoder
+        label_encoder = LabelEncoder()
+
+        # Convertimos las etiquetas de letras en números enteros
+        y_train_encoded = label_encoder.fit_transform(y_train)
+        y_test_encoded = label_encoder.transform(y_test)
 
         # Crear e instanciar el modelo
         num_classes = len(np.unique(y))
         input_shape = X_train.shape[1:]  # Asume que todas las imágenes tienen el mismo shape
-
-        # Entrenar el modelo
-        trainer = ModelTrainer()
-        trainer.initialize_model(input_shape, num_classes)
-        trainer.train(X_train, y_train, X_test, y_test, batch_size=30, epochs=50)
+        trainer = ModelTrainer(input_shape, num_classes)
+        # Entrenar el modelo bs = 16, epochs = 200
+        trainer.train(X_train, y_train_encoded, X_test, y_test_encoded, batch_size=16, epochs=200)
         trainer.save_model('data/test/trained_model.h5')  # Guardar modelo
-
         return jsonify({'status': 'success', 'message': 'Model trained and saved successfully'})
 
     except Exception as e:
@@ -122,35 +121,41 @@ def train_model():
 # Función para predecir una imagen
 # --------------------------------------------
 def predict_data(request):
-    trainer = ModelTrainer()
-    # Verificar si el modelo está cargado, si no, cargarlo
-    if not trainer.model_initialized:
-        try:
-            trainer.load_model('data/test/trained_model.h5')  # Cargar modelo
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': 'Model could not be loaded: ' + str(e)})
+    trainer = ModelTrainer(input_shape=(28, 28, 1), num_classes=5)
+    trainer.load_model('data/test/trained_model.h5')
+    try: 
+        img_data = request.json.get('image').replace("data:image/png;base64,","")
 
-    # Recibir la imagen
-    if 'image' not in request.files:
-        return jsonify({'status': 'error', 'message': 'No image provided'})
+        # Decodificar la imagen base64 y guardarla
+        img_bytes = base64.b64decode(img_data)
 
-    file = request.files['image']
-    if file.filename == '':
-        return jsonify({'status': 'error', 'message': 'No image selected'})
+        # Guardar el archivo con el nombre único
+        filepath = os.path.join('data/test/', "predict.png")
+        with open(filepath, "wb") as fh:
+            fh.write(img_bytes)
 
-    try:
-        # Abrir la imagen con PIL y convertirla en formato adecuado
-        image = Image.open(file.stream)
-        image = image.convert('L')  # Convertir a escala de grises
-        image = image.resize((28, 28))  # Redimensionar a 28x28 que es el input_shape esperado
+        # Cargar la imagen
+        image = Image.open(filepath)
+
+        # Redimensionar la imagen
+        image = image.resize((28, 28))
+
+        # Convertir la imagen a un array numpy
         image_array = np.array(image)
-        image_array = image_array / 255.0  # Normalización
-        image_array = image_array.reshape((1, 28, 28, 1))  # Reshape para que coincida con el input_shape del modelo
+
+        # Seleccionar el canal de color que deseas mantener
+        image_array = image_array[:, :, 3]
+
+        image_array = np.expand_dims(image_array, axis=-1)
 
         # Realizar la predicción
         prediction = trainer.predict(image_array)
+        # Obtener el índice de la predicción con mayor probabilidad
+        maxIndex = np.argmax(prediction)
+        # Crear una respuesta JSON
+        response = jsonify({'status': 'success', 'message': 'Prediction successful', 'prediction': prediction.tolist(), 'letter': ['A', 'E', 'I', 'O', 'U'][maxIndex]})
 
-        return jsonify({'status': 'success', 'message': 'Prediction successful', 'prediction': prediction.tolist()})
+        return response
 
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
